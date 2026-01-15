@@ -439,6 +439,10 @@ export const useAdminChat = () => {
     if (!cache.selectedUser) return;
     if (!text && !attachment) return;
 
+    // Temporarily disable auto-refresh to prevent duplicates
+    const prevAutoRefreshSec = cache.autoRefreshSec;
+    setAutoRefresh('', cache.autoRefreshType);
+
     const fileToBase64 = (file: File): Promise<string> => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -479,6 +483,8 @@ export const useAdminChat = () => {
         });
         return { ...prev, rows: updated };
       });
+      // Re-enable auto-refresh after a delay for CSV mode
+      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
       return;
     }
 
@@ -490,6 +496,8 @@ export const useAdminChat = () => {
         });
         return { ...prev, rows: updated };
       });
+      // Re-enable auto-refresh after a delay for failed connection
+      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
       return;
     }
 
@@ -527,8 +535,8 @@ export const useAdminChat = () => {
         return { ...prev, rows: updated };
       });
 
-      // Don't call refreshData here - it causes duplicate messages on frontend
-      // The optimistic update already added the message
+      // Re-enable auto-refresh after a short delay to allow the message to be processed
+      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 3000);
     } catch {
       setCache(prev => {
         const updated = prev.rows.map(r => {
@@ -539,8 +547,10 @@ export const useAdminChat = () => {
         });
         return { ...prev, rows: updated };
       });
+      // Re-enable auto-refresh after a delay for failed send
+      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
     }
-  }, [cache.selectedUser, cache.adminName, cache.mode, cache.pgConnected, cache.pgUrl, cache.tableName, parseCols, addRows, refreshData]);
+  }, [cache.selectedUser, cache.adminName, cache.mode, cache.pgConnected, cache.pgUrl, cache.tableName, cache.autoRefreshSec, cache.autoRefreshType, parseCols, addRows, refreshData]);
 
   const loadCsv = useCallback(async (file: File) => {
     const txt = await file.text();
