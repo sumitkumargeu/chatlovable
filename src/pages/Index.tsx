@@ -260,6 +260,7 @@ const Index = () => {
         pgConnected={cache.pgConnected}
         tableName={cache.tableName}
         tableCols={cache.tableCols}
+        userIdentifierCol={cache.userIdentifierCol}
         afterDateDraft={cache.afterDateDraft}
         adminName={cache.adminName}
         autoRefreshSec={cache.autoRefreshSec}
@@ -273,6 +274,10 @@ const Index = () => {
         onSetTableCols={(cols) => {
           setSettings({ tableCols: cols });
           toast.success('Table attributes updated');
+        }}
+        onSetUserIdentifierCol={(col) => {
+          setSettings({ userIdentifierCol: col });
+          toast.success(`User identifier column set to: ${col}`);
         }}
         onSetAfterDate={(date) => {
           setSettings({ afterDateSet: date, afterDateDraft: date });
