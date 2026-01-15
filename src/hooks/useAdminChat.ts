@@ -5,13 +5,14 @@ const API_BASE = "https://chatapi-fgqu.onrender.com";
 
 export interface Message {
   id?: string | number | null;
-  user_identifier: string;
+  user_identifier?: string;
   sender: string;
   admin_name?: string;
   message: string;
   file?: string | null;
   created_at: string;
   _status?: 'pending' | 'sent' | 'failed';
+  [key: string]: unknown; // Allow dynamic properties for custom user identifier columns
 }
 
 export type Mode = 'db' | 'csv';
@@ -25,6 +26,7 @@ interface CacheData {
   pgConnected: boolean;
   tableName: string;
   tableCols: string;
+  userIdentifierCol: string; // Dynamic user identifier column name
   afterDateDraft: string;
   afterDateSet: string;
   adminName: string;
@@ -65,9 +67,9 @@ const hash = (s: string): string => {
   return (h >>> 0).toString(16);
 };
 
-const messageKey = (m: Message): string => {
+const messageKey = (m: Message, userIdCol: string = 'user_identifier'): string => {
   if (m.id !== undefined && m.id !== null && String(m.id).length) return `id:${m.id}`;
-  const a = String(m.user_identifier || "");
+  const a = String((m as Record<string, unknown>)[userIdCol] || m.user_identifier || "");
   const b = String(m.sender || "");
   const c = String(m.created_at || "");
   const d = String(m.message || "");
@@ -186,6 +188,7 @@ export const useAdminChat = () => {
     pgConnected: false,
     tableName: 'messages',
     tableCols: 'id, user_identifier, sender, admin_name, message, file, created_at',
+    userIdentifierCol: 'user_identifier',
     afterDateDraft: new Date().toISOString().slice(0, 10),
     afterDateSet: '',
     adminName: '',
@@ -207,6 +210,12 @@ export const useAdminChat = () => {
   const parseCols = useCallback(() => {
     return cache.tableCols.split(",").map((s) => s.trim()).filter(Boolean);
   }, [cache.tableCols]);
+
+  // Helper to get user identifier from a row using the dynamic column name
+  const getUserId = useCallback((row: Message | Record<string, unknown>): string => {
+    const col = cache.userIdentifierCol || 'user_identifier';
+    return String((row as Record<string, unknown>)[col] || row.user_identifier || "");
+  }, [cache.userIdentifierCol]);
 
   const checkApiHealth = useCallback(async () => {
     const base = getApiBase();
@@ -261,15 +270,16 @@ export const useAdminChat = () => {
       const newRows = [...prev.rows];
       const newByKey = new Set(prev.byKey);
       const newUnread = { ...prev.unread };
+      const userIdCol = prev.userIdentifierCol || 'user_identifier';
       
       for (const raw of rows) {
         const r = normalizeRow(raw);
-        const key = messageKey(r);
+        const key = messageKey(r, userIdCol);
         if (newByKey.has(key)) continue;
         newByKey.add(key);
         newRows.push(r);
 
-        const uid = String(r.user_identifier || "");
+        const uid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
         const canInc = prev.hasLoadedOnce && markUnread;
         if (canInc && uid && uid !== prev.selectedUser) {
           newUnread[uid] = (newUnread[uid] || 0) + 1;
@@ -384,21 +394,23 @@ export const useAdminChat = () => {
       if (!j.ok) return;
 
       const rows = Array.isArray(j.rows) ? j.rows : [];
-      const onlyUser = rows.filter((x: Message) => String(x.user_identifier || "") === uid);
+      const userIdCol = cache.userIdentifierCol || 'user_identifier';
+      const onlyUser = rows.filter((x: Message) => String((x as Record<string, unknown>)[userIdCol] || x.user_identifier || "") === uid);
 
       if (useAfterFilter && after) {
         const afterT = parseTimeMs(after);
         if (afterT) {
           setCache(prev => {
             const filtered = prev.rows.filter((r) => {
-              if (String(r.user_identifier || "") !== uid) return true;
+              const rowUid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
+              if (rowUid !== uid) return true;
               const t = parseTimeMs(r.created_at);
               return !t || t >= afterT;
             });
             return {
               ...prev,
               rows: filtered,
-              byKey: new Set(filtered.map((r) => messageKey(r))),
+              byKey: new Set(filtered.map((r) => messageKey(r, userIdCol))),
             };
           });
         }
@@ -428,15 +440,16 @@ export const useAdminChat = () => {
       });
     };
 
+    const userIdCol = cache.userIdentifierCol || 'user_identifier';
     const temp: Message = {
       id: null,
-      user_identifier: cache.selectedUser,
       sender: "admin",
       admin_name: cache.adminName || "",
       message: text,
       file: null,
       created_at: new Date().toISOString(),
       _status: "pending",
+      [userIdCol]: cache.selectedUser, // Use dynamic column name
     };
 
     if (attachment) {
@@ -479,7 +492,8 @@ export const useAdminChat = () => {
           db_url: cache.pgUrl,
           table: cache.tableName,
           columns: parseCols(),
-          user_identifier: temp.user_identifier,
+          user_identifier_col: userIdCol,
+          user_identifier: cache.selectedUser,
           sender: "admin",
           admin_name: temp.admin_name,
           message: temp.message,
@@ -501,9 +515,8 @@ export const useAdminChat = () => {
         return { ...prev, rows: updated };
       });
 
-      if (j.ok) {
-        await refreshData(true);
-      }
+      // Don't call refreshData here - it causes duplicate messages on frontend
+      // The optimistic update already added the message
     } catch {
       setCache(prev => {
         const updated = prev.rows.map(r => {
@@ -623,10 +636,10 @@ export const useAdminChat = () => {
     };
   }, [cache.autoRefreshSec, cache.autoRefreshType, cache.mode, refreshData, refreshCurrentUser]);
 
-  // API health polling
+  // API health polling - every 15 seconds
   useEffect(() => {
     checkApiHealth();
-    healthTimerRef.current = setInterval(checkApiHealth, 5000);
+    healthTimerRef.current = setInterval(checkApiHealth, 15000);
     return () => {
       if (healthTimerRef.current) {
         clearInterval(healthTimerRef.current);
@@ -645,17 +658,21 @@ export const useAdminChat = () => {
 
   const groupedUsers = useCallback(() => {
     const map = new Map<string, Message[]>();
+    const userIdCol = cache.userIdentifierCol || 'user_identifier';
     for (const r of cache.rows) {
-      const uid = String(r.user_identifier || "");
+      const uid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
       if (!uid) continue;
       if (!map.has(uid)) map.set(uid, []);
       map.get(uid)!.push(r);
     }
     return map;
-  }, [cache.rows]);
+  }, [cache.rows, cache.userIdentifierCol]);
 
   const selectedMessages = cache.selectedUser
-    ? cache.rows.filter((r) => String(r.user_identifier || "") === cache.selectedUser)
+    ? cache.rows.filter((r) => {
+        const userIdCol = cache.userIdentifierCol || 'user_identifier';
+        return String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "") === cache.selectedUser;
+      })
     : [];
 
   return {

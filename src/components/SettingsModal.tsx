@@ -17,6 +17,7 @@ interface SettingsModalProps {
   pgConnected: boolean;
   tableName: string;
   tableCols: string;
+  userIdentifierCol: string;
   afterDateDraft: string;
   adminName: string;
   autoRefreshSec: string;
@@ -25,6 +26,7 @@ interface SettingsModalProps {
   onSavePgUrl: (url: string) => void;
   onSetTableName: (name: string) => void;
   onSetTableCols: (cols: string) => void;
+  onSetUserIdentifierCol: (col: string) => void;
   onSetAfterDate: (date: string) => void;
   onSetAdminName: (name: string) => void;
   onSetAutoRefresh: (sec: string, type: RefreshType) => void;
@@ -40,6 +42,7 @@ export const SettingsModal = ({
   pgConnected,
   tableName,
   tableCols,
+  userIdentifierCol,
   afterDateDraft,
   adminName,
   autoRefreshSec,
@@ -48,6 +51,7 @@ export const SettingsModal = ({
   onSavePgUrl,
   onSetTableName,
   onSetTableCols,
+  onSetUserIdentifierCol,
   onSetAfterDate,
   onSetAdminName,
   onSetAutoRefresh,
@@ -57,6 +61,7 @@ export const SettingsModal = ({
   const [localPgUrl, setLocalPgUrl] = useState(pgUrl);
   const [localTableName, setLocalTableName] = useState(tableName);
   const [localTableCols, setLocalTableCols] = useState(tableCols);
+  const [localUserIdCol, setLocalUserIdCol] = useState(userIdentifierCol);
   const [localAfterDate, setLocalAfterDate] = useState(afterDateDraft);
   const [localAdminName, setLocalAdminName] = useState(adminName);
   const [localAutoSec, setLocalAutoSec] = useState(autoRefreshSec);
@@ -96,52 +101,68 @@ export const SettingsModal = ({
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* DB Settings */}
               {isDbMode && (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Postgres URL</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={localPgUrl}
-                        onChange={(e) => setLocalPgUrl(e.target.value)}
-                        placeholder="postgres://..."
-                        className="flex-1"
-                      />
-                      <IconButton onClick={() => {}}>
-                        <Pencil className="w-4 h-4" />
-                      </IconButton>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => onSavePgUrl(localPgUrl)}
-                      >
-                        Save connection
-                      </Button>
-                      <StatusPill
-                        isGood={pgConnected}
-                        label={pgConnected ? "✓ Connected" : "✕ Not connected"}
-                        showDot={false}
-                      />
-                    </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Postgres URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={localPgUrl}
+                      onChange={(e) => setLocalPgUrl(e.target.value)}
+                      placeholder="postgres://..."
+                      className="flex-1"
+                    />
+                    <IconButton onClick={() => {}}>
+                      <Pencil className="w-4 h-4" />
+                    </IconButton>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Table name</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={localTableName}
-                        onChange={(e) => setLocalTableName(e.target.value)}
-                        placeholder="messages"
-                        className="flex-1"
-                      />
-                      <Button size="sm" onClick={() => onSetTableName(localTableName)}>
-                        Set
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Used in DB mode only.</p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => onSavePgUrl(localPgUrl)}
+                    >
+                      Save connection
+                    </Button>
+                    <StatusPill
+                      isGood={pgConnected}
+                      label={pgConnected ? "✓ Connected" : "✕ Not connected"}
+                      showDot={false}
+                    />
                   </div>
-                </>
+                </div>
               )}
+
+              {/* Table Name - Works for both DB and CSV */}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Table name</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={localTableName}
+                    onChange={(e) => setLocalTableName(e.target.value)}
+                    placeholder="messages"
+                    className="flex-1"
+                  />
+                  <Button size="sm" onClick={() => onSetTableName(localTableName)}>
+                    Set
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Used for both DB and CSV modes.</p>
+              </div>
+
+              {/* User Identifier Column */}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">User identifier column</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={localUserIdCol}
+                    onChange={(e) => setLocalUserIdCol(e.target.value)}
+                    placeholder="user_identifier"
+                    className="flex-1"
+                  />
+                  <Button size="sm" onClick={() => onSetUserIdentifierCol(localUserIdCol)}>
+                    Set
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Column name for grouping users (e.g. visitor_id, user_identifier).</p>
+              </div>
 
               {/* Table Attributes */}
               <div className="space-y-2 md:col-span-2">
@@ -157,7 +178,7 @@ export const SettingsModal = ({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Must include: user_identifier, sender, message, created_at. file optional.
+                  Must include: user id column, sender, message, created_at. file optional.
                 </p>
               </div>
 
