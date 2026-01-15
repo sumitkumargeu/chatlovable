@@ -154,14 +154,14 @@ export const SettingsModal = ({
                   <Input
                     value={localUserIdCol}
                     onChange={(e) => setLocalUserIdCol(e.target.value)}
-                    placeholder="user_identifier"
+                    placeholder="visitor_id"
                     className="flex-1"
                   />
                   <Button size="sm" onClick={() => onSetUserIdentifierCol(localUserIdCol)}>
                     Set
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">Column name for grouping users (e.g. visitor_id, user_identifier).</p>
+                <p className="text-xs text-muted-foreground">Column name for grouping users (e.g. visitor_id). Use user_identifier for legacy compatibility.</p>
               </div>
 
               {/* Table Attributes */}
@@ -170,7 +170,7 @@ export const SettingsModal = ({
                 <Input
                   value={localTableCols}
                   onChange={(e) => setLocalTableCols(e.target.value)}
-                  placeholder="id, user_identifier, sender, admin_name, message, file, created_at"
+                  placeholder="id, visitor_id, sender, admin_name, message, file, created_at"
                 />
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => onSetTableCols(localTableCols)}>
