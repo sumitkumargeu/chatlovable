@@ -92,17 +92,27 @@ const normalizeAfterDateForApi = (s: string): string => {
 export const formatUserId = (raw: string): string => {
   const s = String(raw || "").trim();
   if (!s) return "";
-  const digits = (s.match(/\d+/g) || []).join("");
-  if (digits) {
-    return `USER ${digits.slice(-6).padStart(6, "0")}`;
-  }
   return s;
 };
 
 export const initialsFor = (raw: string): string => {
-  const f = formatUserId(raw);
-  const digits = (f.match(/\d+/g) || []).join("");
-  return digits.slice(-2).padStart(2, "0");
+  const s = String(raw || "").trim();
+  if (!s) return "?";
+  
+  // If the identifier contains digits, use the last 2 digits
+  const digits = (s.match(/\d+/g) || []).join("");
+  if (digits) {
+    return digits.slice(-2).padStart(2, "0");
+  }
+  
+  // Otherwise, use the first 2 characters of the string
+  const words = s.split(/\s+/).filter(w => w.length > 0);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  
+  // If single word, use first 2 characters
+  return s.slice(0, 2).toUpperCase();
 };
 
 export const isAdminSender = (sender: string): boolean => {
