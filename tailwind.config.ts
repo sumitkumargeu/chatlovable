@@ -47,6 +47,19 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        panel: {
+          DEFAULT: "hsl(var(--panel))",
+          secondary: "hsl(var(--panel-2))",
+        },
+        line: "hsl(var(--line))",
+        status: {
+          good: "hsl(var(--good))",
+          bad: "hsl(var(--bad))",
+        },
+        bubble: {
+          left: "hsl(var(--bubble-left))",
+          right: "hsl(var(--bubble-right))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -62,28 +75,37 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 8px)",
       },
       keyframes: {
         "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
         },
         "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        spin: {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+        bump: {
+          from: { transform: "translateY(4px)", opacity: "0.85" },
+          to: { transform: "translateY(0)", opacity: "1" },
+        },
+        pop: {
+          from: { transform: "translateY(6px)", opacity: "0" },
+          to: { transform: "translateY(0)", opacity: "1" },
         },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        spin: "spin 0.65s ease-in-out",
+        bump: "bump 0.22s ease-out",
+        pop: "pop 0.18s ease-out",
       },
     },
   },
