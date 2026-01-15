@@ -68,12 +68,14 @@ const hash = (s: string): string => {
 };
 
 const messageKey = (m: Message, userIdCol: string = 'user_identifier'): string => {
-  if (m.id !== undefined && m.id !== null && String(m.id).length) return `id:${m.id}`;
+  // Always use content-based hashing for consistent duplicate detection
+  // This ensures optimistic messages and their database versions have the same key
   const a = String((m as Record<string, unknown>)[userIdCol] || m.user_identifier || "");
   const b = String(m.sender || "");
   const c = String(m.created_at || "");
   const d = String(m.message || "");
-  return `h:${hash(`${a}|${b}|${c}|${d}`)}`;
+  const e = String(m.file || "");
+  return `h:${hash(`${a}|${b}|${c}|${d}|${e}`)}`;
 };
 
 const normalizeAfterDateForApi = (s: string): string => {
