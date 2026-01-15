@@ -68,13 +68,25 @@ const hash = (s: string): string => {
 };
 
 const messageKey = (m: Message, userIdCol: string = 'user_identifier'): string => {
-  // Always use content-based hashing for consistent duplicate detection
-  // This ensures optimistic messages and their database versions have the same key
+  // Use content-based hashing but normalize timestamps to handle slight differences
   const a = String((m as Record<string, unknown>)[userIdCol] || m.user_identifier || "");
   const b = String(m.sender || "");
-  const c = String(m.created_at || "");
   const d = String(m.message || "");
   const e = String(m.file || "");
+  
+  // Normalize timestamp to nearest second to handle database vs client differences
+  let c = "";
+  if (m.created_at) {
+    try {
+      const date = new Date(m.created_at);
+      // Round to nearest second to eliminate millisecond differences
+      const roundedTime = new Date(Math.floor(date.getTime() / 1000) * 1000);
+      c = roundedTime.toISOString();
+    } catch {
+      c = String(m.created_at);
+    }
+  }
+  
   return `h:${hash(`${a}|${b}|${c}|${d}|${e}`)}`;
 };
 
@@ -216,6 +228,8 @@ export const useAdminChat = () => {
     apiHealthOk: false,
   }));
 
+  const [pendingMessages, setPendingMessages] = useState<Set<string>>(new Set());
+
   const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const healthTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -287,6 +301,29 @@ export const useAdminChat = () => {
       for (const raw of rows) {
         const r = normalizeRow(raw);
         const key = messageKey(r, userIdCol);
+        
+        // Check if this is a database version of a pending message
+        if (r.id !== null && r.id !== undefined) {
+          // This is a database message, check if it matches any pending message
+          const matchingPendingIndex = newRows.findIndex(existing => {
+            if (existing.id !== null) return false; // Only match with optimistic messages
+            const existingKey = messageKey(existing, userIdCol);
+            // Check if content matches (ignoring exact timestamp)
+            return existing.sender === r.sender && 
+                   existing.message === r.message &&
+                   String((existing as Record<string, unknown>)[userIdCol] || existing.user_identifier || "") === String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
+          });
+          
+          if (matchingPendingIndex !== -1) {
+            // Replace the optimistic message with the database version
+            newRows[matchingPendingIndex] = r;
+            const oldKey = messageKey(newRows[matchingPendingIndex], userIdCol);
+            newByKey.delete(oldKey);
+            newByKey.add(key);
+            continue;
+          }
+        }
+        
         if (newByKey.has(key)) continue;
         newByKey.add(key);
         newRows.push(r);
