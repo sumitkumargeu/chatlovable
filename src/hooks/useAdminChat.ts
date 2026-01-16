@@ -3,10 +3,12 @@ import { toast } from 'sonner';
 
 // Dynamic API endpoints configuration - JSON layout
 export const API_ENDPOINTS: Record<string, string> = {
-  A: "https://chatapi-fgqu.onrender.com",
+  A: "https://chatapi101.onrender.com",
   // Add more endpoints as needed:
-  // B: "https://another-api.onrender.com",
-  // C: "https://third-api.example.com",
+  B: "https://chatapi102.onrender.com",
+  C: "https://chatapi102.onrender.com",
+  D: "https://chatapi102.onrender.com",
+  E: "https://chatapi-fgqu.onrender.com"
 };
 
 export interface Message {
