@@ -18,7 +18,7 @@ import { UsersList } from '@/components/UsersList';
 import { ChatMessages } from '@/components/ChatMessages';
 import { ChatComposer } from '@/components/ChatComposer';
 import { SettingsModal } from '@/components/SettingsModal';
-import ApiSelector from '@/components/ApiSelector';
+
 import { toast } from 'sonner';
 
 const Index = () => {
@@ -110,11 +110,9 @@ const Index = () => {
           <StatusPill
             isGood={cache.apiHealthOk}
             label="API"
-          />
-          <ApiSelector
             endpoints={apiEndpoints}
-            selectedKey={cache.selectedApiKey}
-            onSelect={setSelectedApiKey}
+            selectedApiKey={cache.selectedApiKey}
+            onSelectApi={setSelectedApiKey}
           />
         </div>
 
