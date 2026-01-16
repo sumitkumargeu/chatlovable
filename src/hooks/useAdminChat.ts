@@ -206,7 +206,7 @@ const parseCsv = (text: string): Record<string, string>[] => {
 
 export const useAdminChat = () => {
   const [cache, setCache] = useState<CacheData>(() => ({
-    mode: 'csv',
+    mode: 'db',
     theme: 'dark',
     pgUrl: '',
     pgConnected: false,
@@ -214,7 +214,7 @@ export const useAdminChat = () => {
     tableCols: 'id, visitor_id, sender, admin_name, message, file, created_at',
     userIdentifierCol: 'visitor_id',
     afterDateDraft: new Date().toISOString().slice(0, 10),
-    afterDateSet: '',
+    afterDateSet: new Date().toISOString().slice(0, 10),
     adminName: '',
     autoRefreshSec: '',
     autoRefreshType: 'main',
