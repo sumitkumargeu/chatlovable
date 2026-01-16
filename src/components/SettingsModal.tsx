@@ -225,11 +225,7 @@ export const SettingsModal = ({
                       className="w-24"
                     />
                     <SegmentedControl
-                      options={[
-                        { value: 'main', label: 'Main ⟳' },
-                        { value: 'filtered', label: 'Filtered ⏳' },
-                        { value: 'all', label: 'All ↻' },
-                      ]}
+                      options={['main', 'filtered', 'all']}
                       value={localAutoType}
                       onChange={(v) => setLocalAutoType(v as RefreshType)}
                     />

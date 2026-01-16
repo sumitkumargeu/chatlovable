@@ -29,7 +29,7 @@ export const ChatMessages = ({ messages, onOpenAttachment }: ChatMessagesProps) 
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm h-full">
         No messages yet
       </div>
     );
@@ -38,7 +38,7 @@ export const ChatMessages = ({ messages, onOpenAttachment }: ChatMessagesProps) 
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto p-4 pb-24 flex flex-col gap-2 chat-gradient scrollbar-thin"
+      className="flex-1 overflow-y-auto p-4 pb-24 flex flex-col gap-2 chat-gradient scrollbar-thin h-full"
     >
       {messages.map((m, idx) => {
         const isRight = isAdminSender(m.sender);

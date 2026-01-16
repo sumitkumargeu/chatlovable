@@ -1,7 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
-const API_BASE = "https://chatapi-fgqu.onrender.com";
+// Dynamic API endpoints configuration - JSON layout
+export const API_ENDPOINTS: Record<string, string> = {
+  A: "https://chatapi-fgqu.onrender.com",
+  // Add more endpoints as needed:
+  // B: "https://another-api.onrender.com",
+  // C: "https://third-api.example.com",
+};
 
 export interface Message {
   id?: string | number | null;
@@ -22,6 +28,7 @@ export type RefreshType = 'main' | 'filtered' | 'all';
 interface CacheData {
   mode: Mode;
   theme: Theme;
+  selectedApiKey: string; // Selected API endpoint key from JSON
   pgUrl: string;
   pgConnected: boolean;
   tableName: string;
@@ -42,200 +49,99 @@ interface CacheData {
   apiHealthOk: boolean;
 }
 
-const getApiBase = () => {
-  const base = String(API_BASE || "").trim();
-  return base || window.location.origin;
+// Get the list of available API endpoint keys
+export const getApiEndpointKeys = (): string[] => Object.keys(API_ENDPOINTS);
+
+// Get API base URL for the selected key
+const getApiBase = (selectedKey: string): string => {
+  const url = API_ENDPOINTS[selectedKey];
+  if (url) return url.trim();
+  // Fallback to first available or window origin
+  const keys = getApiEndpointKeys();
+  if (keys.length > 0) return (API_ENDPOINTS[keys[0]] || "").trim();
+  return window.location.origin;
 };
 
 const parseTimeMs = (iso: string | null | undefined): number | null => {
   if (!iso) return null;
-  try {
-    const d = new Date(iso);
-    const t = d.getTime();
-    return Number.isFinite(t) ? t : null;
-  } catch {
-    return null;
-  }
-};
-
-const hash = (s: string): string => {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
 };
 
 const messageKey = (m: Message, userIdCol: string = 'user_identifier'): string => {
-  // Use content-based hashing but normalize timestamps to handle slight differences
-  const a = String((m as Record<string, unknown>)[userIdCol] || m.user_identifier || "");
-  const b = String(m.sender || "");
-  const d = String(m.message || "");
-  const e = String(m.file || "");
-  
-  // Normalize timestamp to nearest second to handle database vs client differences
-  let c = "";
-  if (m.created_at) {
-    try {
-      const date = new Date(m.created_at);
-      // Round to nearest second to eliminate millisecond differences
-      const roundedTime = new Date(Math.floor(date.getTime() / 1000) * 1000);
-      c = roundedTime.toISOString();
-    } catch {
-      c = String(m.created_at);
-    }
-  }
-  
-  return `h:${hash(`${a}|${b}|${c}|${d}|${e}`)}`;
+  const userId = String((m as Record<string, unknown>)[userIdCol] || m.user_identifier || "");
+  const time = parseTimeMs(m.created_at) ?? 0;
+  const id = m.id !== null && m.id !== undefined ? String(m.id) : `opt_${time}`;
+  return `${userId}__${id}__${m.message}`;
 };
 
-const normalizeAfterDateForApi = (s: string): string => {
-  const v = s.trim();
-  if (!v) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-    return `${v}T00:00:00Z`;
-  }
-  try {
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
-  } catch {}
-  return v;
+const parseColumns = (cols: string): string[] =>
+  cols
+    .split(',')
+    .map(c => c.trim())
+    .filter(Boolean);
+
+// Helper functions exported for components
+export const formatUserId = (uid: string): string => {
+  if (uid.length > 20) return uid.slice(0, 20) + '...';
+  return uid;
 };
 
-export const formatUserId = (raw: string): string => {
-  const s = String(raw || "").trim();
-  if (!s) return "";
-  return s;
+export const initialsFor = (uid: string): string => {
+  const clean = uid.replace(/[^a-zA-Z0-9]/g, '');
+  return clean.slice(0, 2).toUpperCase() || '??';
 };
 
-export const initialsFor = (raw: string): string => {
-  const s = String(raw || "").trim();
-  if (!s) return "?";
-  
-  // If the identifier contains digits, use the last 2 digits
-  const digits = (s.match(/\d+/g) || []).join("");
-  if (digits) {
-    return digits.slice(-2).padStart(2, "0");
+export const toMessageTimeLabel = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-  
-  // Otherwise, use the first 2 characters of the string
-  const words = s.split(/\s+/).filter(w => w.length > 0);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-  
-  // If single word, use first 2 characters
-  return s.slice(0, 2).toUpperCase();
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
 export const isAdminSender = (sender: string): boolean => {
-  return String(sender || "").toLowerCase() === "admin";
+  return sender?.toLowerCase() === 'admin';
 };
 
-export const toMessageTimeLabel = (iso: string): string => {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    const t = d.getTime();
-    if (!Number.isFinite(t)) return String(iso);
+const formatSize = (n: number): string =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}MB` : `${(n / 1_000).toFixed(1)}KB`;
 
-    const now = Date.now();
-    const diffMs = Math.max(0, now - t);
-    const s = Math.floor(diffMs / 1000);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h`;
+export function useAdminChat() {
+  const [cache, setCache] = useState<CacheData>(() => {
+    const keys = getApiEndpointKeys();
+    return {
+      mode: 'db',
+      theme: 'dark',
+      selectedApiKey: keys.length > 0 ? keys[0] : '',
+      pgUrl: '',
+      pgConnected: false,
+      tableName: 'messages',
+      tableCols: 'id, visitor_id, sender, admin_name, message, file, created_at',
+      userIdentifierCol: 'visitor_id',
+      afterDateDraft: new Date().toISOString().slice(0, 10),
+      afterDateSet: new Date().toISOString().slice(0, 10),
+      adminName: '',
+      autoRefreshSec: '',
+      autoRefreshType: 'main',
+      rows: [],
+      byKey: new Set(),
+      selectedUser: '',
+      unread: {},
+      hasLoadedOnce: false,
+      lastIncrementalSince: null,
+      csvFileName: '',
+      apiHealthOk: false,
+    };
+  });
 
-    return d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return String(iso);
-  }
-};
+  const autoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-const parseCsv = (text: string): Record<string, string>[] => {
-  const lines = text.split(/\r?\n/).filter((x) => x.trim().length);
-  if (!lines.length) return [];
-
-  const splitCsvLine = (line: string): string[] => {
-    const out: string[] = [];
-    let cur = "";
-    let inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQ && line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQ = !inQ;
-        }
-        continue;
-      }
-      if (ch === "," && !inQ) {
-        out.push(cur);
-        cur = "";
-        continue;
-      }
-      cur += ch;
-    }
-    out.push(cur);
-    return out;
-  };
-
-  const header = splitCsvLine(lines[0]).map((h) => h.trim());
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const vals = splitCsvLine(lines[i]);
-    const obj: Record<string, string> = {};
-    for (let c = 0; c < header.length; c++) {
-      obj[header[c]] = vals[c] ?? "";
-    }
-    rows.push(obj);
-  }
-  return rows;
-};
-
-export const useAdminChat = () => {
-  const [cache, setCache] = useState<CacheData>(() => ({
-    mode: 'db',
-    theme: 'dark',
-    pgUrl: '',
-    pgConnected: false,
-    tableName: 'messages',
-    tableCols: 'id, visitor_id, sender, admin_name, message, file, created_at',
-    userIdentifierCol: 'visitor_id',
-    afterDateDraft: new Date().toISOString().slice(0, 10),
-    afterDateSet: new Date().toISOString().slice(0, 10),
-    adminName: '',
-    autoRefreshSec: '',
-    autoRefreshType: 'main',
-    rows: [],
-    byKey: new Set(),
-    selectedUser: '',
-    unread: {},
-    hasLoadedOnce: false,
-    lastIncrementalSince: null,
-    csvFileName: '',
-    apiHealthOk: false,
-  }));
-
-  const [pendingMessages, setPendingMessages] = useState<Set<string>>(new Set());
-
-  const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const healthTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const parseCols = useCallback(() => {
-    return cache.tableCols.split(",").map((s) => s.trim()).filter(Boolean);
-  }, [cache.tableCols]);
+  const parseCols = useCallback((): string[] => parseColumns(cache.tableCols), [cache.tableCols]);
 
   // Helper to get user identifier from a row using the dynamic column name
   const getUserId = useCallback((row: Message | Record<string, unknown>): string => {
@@ -243,8 +149,15 @@ export const useAdminChat = () => {
     return String((row as Record<string, unknown>)[col] || row.user_identifier || "");
   }, [cache.userIdentifierCol]);
 
+  // Set selected API endpoint
+  const setSelectedApiKey = useCallback((key: string) => {
+    if (API_ENDPOINTS[key]) {
+      setCache(prev => ({ ...prev, selectedApiKey: key, apiHealthOk: false }));
+    }
+  }, []);
+
   const checkApiHealth = useCallback(async () => {
-    const base = getApiBase();
+    const base = getApiBase(cache.selectedApiKey);
     if (!base) {
       setCache(prev => ({ ...prev, apiHealthOk: false }));
       return;
@@ -256,10 +169,10 @@ export const useAdminChat = () => {
     } catch {
       setCache(prev => ({ ...prev, apiHealthOk: false }));
     }
-  }, []);
+  }, [cache.selectedApiKey]);
 
   const testDbConnection = useCallback(async (): Promise<boolean> => {
-    const base = getApiBase();
+    const base = getApiBase(cache.selectedApiKey);
     if (!base) {
       setCache(prev => ({ ...prev, pgConnected: false }));
       toast.error("API_BASE is empty. Set it to your backend URL.");
@@ -281,7 +194,7 @@ export const useAdminChat = () => {
       toast.error(`DB test failed. API unreachable at ${base}`);
       return false;
     }
-  }, [cache.pgUrl]);
+  }, [cache.pgUrl, cache.selectedApiKey]);
 
   const normalizeRow = (r: Partial<Message>): Message => {
     const out = { ...r } as Message;
@@ -307,7 +220,6 @@ export const useAdminChat = () => {
           // This is a database message, check if it matches any pending message
           const matchingPendingIndex = newRows.findIndex(existing => {
             if (existing.id !== null) return false; // Only match with optimistic messages
-            const existingKey = messageKey(existing, userIdCol);
             // Check if content matches (ignoring exact timestamp)
             return existing.sender === r.sender && 
                    existing.message === r.message &&
@@ -328,54 +240,68 @@ export const useAdminChat = () => {
         newByKey.add(key);
         newRows.push(r);
 
-        const uid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
-        const canInc = prev.hasLoadedOnce && markUnread;
-        if (canInc && uid && uid !== prev.selectedUser) {
-          newUnread[uid] = (newUnread[uid] || 0) + 1;
+        // Mark unread only for user messages, not currently selected
+        if (markUnread && r.sender === 'user') {
+          const uid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
+          if (uid && uid !== prev.selectedUser) {
+            newUnread[uid] = (newUnread[uid] || 0) + 1;
+          }
         }
       }
 
-      newRows.sort((a, b) => {
-        const ta = new Date(a.created_at || 0).getTime();
-        const tb = new Date(b.created_at || 0).getTime();
-        return ta - tb;
-      });
-
+      // Sort by created_at
+      newRows.sort((a, b) => parseTimeMs(a.created_at)! - parseTimeMs(b.created_at)!);
       return { ...prev, rows: newRows, byKey: newByKey, unread: newUnread };
     });
   }, []);
 
-  const clearData = useCallback(() => {
-    setCache(prev => ({
-      ...prev,
-      rows: [],
-      byKey: new Set(),
-      unread: {},
-      lastIncrementalSince: null,
-    }));
+  const setMode = useCallback((m: Mode) => {
+    setCache(prev => ({ ...prev, mode: m }));
   }, []);
 
+  const setTheme = useCallback((t: Theme) => {
+    setCache(prev => ({ ...prev, theme: t }));
+  }, []);
+
+  interface SettingsPayload {
+    pgUrl?: string;
+    tableName?: string;
+    tableCols?: string;
+    userIdentifierCol?: string;
+    afterDateDraft?: string;
+    afterDateSet?: string;
+    adminName?: string;
+  }
+
+  const setSettings = useCallback((s: SettingsPayload) => {
+    setCache(prev => ({ ...prev, ...s }));
+  }, []);
+
+  const setAutoRefresh = useCallback((sec: string, type: RefreshType) => {
+    setCache(prev => ({ ...prev, autoRefreshSec: sec, autoRefreshType: type }));
+  }, []);
+
+  const selectUser = useCallback((uid: string) => {
+    setCache(prev => {
+      const newUnread = { ...prev.unread };
+      delete newUnread[uid];
+      return { ...prev, selectedUser: uid, unread: newUnread };
+    });
+  }, []);
+
+  // Incremental refresh - fetches only new rows since last check
   const refreshData = useCallback(async (incremental: boolean) => {
-    if (cache.mode === "csv") return;
-
-    let connected = cache.pgConnected;
-    if (!connected) {
-      connected = await testDbConnection();
-      if (!connected) return;
-    }
-
-    const base = getApiBase();
+    if (cache.mode !== 'db') return;
+    const base = getApiBase(cache.selectedApiKey);
     if (!base) return;
 
     const cols = parseCols();
-    const after = normalizeAfterDateForApi(cache.afterDateSet);
-
     let since: string | null = null;
-    if (incremental) {
-      since = cache.lastIncrementalSince || after || null;
-    } else {
-      since = after || null;
-      clearData();
+
+    if (incremental && cache.lastIncrementalSince) {
+      since = cache.lastIncrementalSince;
+    } else if (!cache.hasLoadedOnce && cache.afterDateSet) {
+      since = cache.afterDateSet;
     }
 
     try {
@@ -390,41 +316,37 @@ export const useAdminChat = () => {
           limit: 5000,
         }),
       });
-
       const j = await r.json();
-      if (!j.ok) return;
-
-      const rows = Array.isArray(j.rows) ? j.rows : [];
-      addRows(rows, true);
-
-      setCache(prev => {
-        const last = prev.rows.at(-1);
-        return {
-          ...prev,
-          hasLoadedOnce: true,
-          lastIncrementalSince: last?.created_at || prev.lastIncrementalSince,
-        };
-      });
-    } catch {
-      toast.error(`Refresh failed. Check backend at ${base}`);
+      const rows: Partial<Message>[] = j.rows || [];
+      
+      if (rows.length > 0) {
+        addRows(rows, cache.hasLoadedOnce);
+        // Update lastIncrementalSince to the latest created_at
+        const latestRow = rows[rows.length - 1];
+        if (latestRow?.created_at) {
+          setCache(prev => ({ 
+            ...prev, 
+            hasLoadedOnce: true,
+            lastIncrementalSince: latestRow.created_at ?? null 
+          }));
+        }
+      } else {
+        setCache(prev => ({ ...prev, hasLoadedOnce: true }));
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Fetch rows failed: ${msg}`);
     }
-  }, [cache.mode, cache.pgConnected, cache.pgUrl, cache.tableName, cache.afterDateSet, cache.lastIncrementalSince, testDbConnection, parseCols, clearData, addRows]);
+  }, [cache.mode, cache.pgUrl, cache.tableName, cache.afterDateSet, cache.hasLoadedOnce, cache.lastIncrementalSince, cache.selectedApiKey, parseCols, addRows]);
 
-  const refreshCurrentUser = useCallback(async (useAfterFilter: boolean) => {
-    if (cache.mode !== "db" || !cache.selectedUser) return;
-
-    let connected = cache.pgConnected;
-    if (!connected) {
-      connected = await testDbConnection();
-      if (!connected) return;
-    }
-
-    const base = getApiBase();
+  // Refresh for a specific user with optional date filter
+  const refreshCurrentUser = useCallback(async (useAfter: boolean) => {
+    if (cache.mode !== 'db' || !cache.selectedUser) return;
+    const base = getApiBase(cache.selectedApiKey);
     if (!base) return;
 
     const cols = parseCols();
-    const uid = cache.selectedUser;
-    const after = useAfterFilter ? normalizeAfterDateForApi(cache.afterDateSet) : "";
+    const after = useAfter ? cache.afterDateSet : null;
 
     try {
       const r = await fetch(`${base}/api/messages/query`, {
@@ -438,107 +360,48 @@ export const useAdminChat = () => {
           limit: 5000,
         }),
       });
-
       const j = await r.json();
-      if (!j.ok) return;
-
-      const rows = Array.isArray(j.rows) ? j.rows : [];
+      const rows: Partial<Message>[] = j.rows || [];
+      
+      // Filter to just the selected user
       const userIdCol = cache.userIdentifierCol || 'user_identifier';
-      const onlyUser = rows.filter((x: Message) => String((x as Record<string, unknown>)[userIdCol] || x.user_identifier || "") === uid);
-
-      if (useAfterFilter && after) {
-        const afterT = parseTimeMs(after);
-        if (afterT) {
-          setCache(prev => {
-            const filtered = prev.rows.filter((r) => {
-              const rowUid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
-              if (rowUid !== uid) return true;
-              const t = parseTimeMs(r.created_at);
-              return !t || t >= afterT;
-            });
-            return {
-              ...prev,
-              rows: filtered,
-              byKey: new Set(filtered.map((r) => messageKey(r, userIdCol))),
-            };
-          });
-        }
-      }
-
-      addRows(onlyUser, true);
-      setCache(prev => ({ ...prev, hasLoadedOnce: true }));
-    } catch {
-      toast.error("Refresh failed for current user.");
-    }
-  }, [cache.mode, cache.pgConnected, cache.pgUrl, cache.tableName, cache.afterDateSet, cache.selectedUser, testDbConnection, parseCols, addRows]);
-
-  const sendMessage = useCallback(async (text: string, attachment: File | null) => {
-    if (!cache.selectedUser) return;
-    if (!text && !attachment) return;
-
-    // Temporarily disable auto-refresh to prevent duplicates
-    const prevAutoRefreshSec = cache.autoRefreshSec;
-    setAutoRefresh('', cache.autoRefreshType);
-
-    const fileToBase64 = (file: File): Promise<string> => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const res = String(reader.result || "");
-          const b64 = res.includes(",") ? res.split(",")[1] : res;
-          resolve(b64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+      const userRows = rows.filter(row => {
+        const rowUserId = String((row as Record<string, unknown>)[userIdCol] || row.user_identifier || "");
+        return rowUserId === cache.selectedUser;
       });
-    };
+      
+      if (userRows.length > 0) {
+        addRows(userRows, false);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Refresh user failed: ${msg}`);
+    }
+  }, [cache.mode, cache.pgUrl, cache.tableName, cache.afterDateSet, cache.selectedUser, cache.userIdentifierCol, cache.selectedApiKey, parseCols, addRows]);
 
+  const sendMessage = useCallback(async (msg: string, fileBase64: string | null) => {
+    if (!cache.selectedUser) return;
     const userIdCol = cache.userIdentifierCol || 'user_identifier';
+    
     const temp: Message = {
       id: null,
-      sender: "admin",
-      admin_name: cache.adminName || "",
-      message: text,
-      file: null,
+      sender: 'admin',
+      admin_name: cache.adminName || 'Admin',
+      message: msg,
+      file: fileBase64,
       created_at: new Date().toISOString(),
-      _status: "pending",
-      [userIdCol]: cache.selectedUser, // Use dynamic column name
+      _status: 'pending',
     };
+    // Set the dynamic user identifier
+    (temp as Record<string, unknown>)[userIdCol] = cache.selectedUser;
+    temp.user_identifier = cache.selectedUser;
 
-    if (attachment) {
-      const b64 = await fileToBase64(attachment);
-      temp.file = b64;
-    }
-
+    // Optimistic UI
     addRows([temp], false);
 
-    if (cache.mode === "csv") {
-      setCache(prev => {
-        const updated = prev.rows.map(r => {
-          if (r === temp) return { ...r, _status: 'sent' as const };
-          return r;
-        });
-        return { ...prev, rows: updated };
-      });
-      // Re-enable auto-refresh after a delay for CSV mode
-      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
-      return;
-    }
+    if (cache.mode === 'csv') return; // CSV mode only
 
-    if (!cache.pgConnected) {
-      setCache(prev => {
-        const updated = prev.rows.map(r => {
-          if (r === temp) return { ...r, _status: 'failed' as const };
-          return r;
-        });
-        return { ...prev, rows: updated };
-      });
-      // Re-enable auto-refresh after a delay for failed connection
-      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
-      return;
-    }
-
-    const base = getApiBase();
+    const base = getApiBase(cache.selectedApiKey);
     if (!base) return;
 
     try {
@@ -558,117 +421,145 @@ export const useAdminChat = () => {
           created_at: temp.created_at,
         }),
       });
-
       const j = await r.json();
-      const status = j.ok ? 'sent' : 'failed';
-      
-      setCache(prev => {
-        const updated = prev.rows.map(r => {
-          if (r.created_at === temp.created_at && r.message === temp.message) {
-            return { ...r, _status: status as 'sent' | 'failed' };
-          }
-          return r;
-        });
-        return { ...prev, rows: updated };
-      });
-
-      // Re-enable auto-refresh after a short delay to allow the message to be processed
-      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 3000);
-    } catch {
-      setCache(prev => {
-        const updated = prev.rows.map(r => {
-          if (r.created_at === temp.created_at && r.message === temp.message) {
-            return { ...r, _status: 'failed' as const };
-          }
-          return r;
-        });
-        return { ...prev, rows: updated };
-      });
-      // Re-enable auto-refresh after a delay for failed send
-      setTimeout(() => setAutoRefresh(prevAutoRefreshSec, cache.autoRefreshType), 2000);
+      if (!j.ok) {
+        toast.error(`Send failed: ${j.error || 'unknown'}`);
+      }
+      // Don't refresh after send - the optimistic message is enough
+      // The next refresh cycle will confirm the message
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      toast.error(`Send failed: ${err}`);
     }
-  }, [cache.selectedUser, cache.adminName, cache.mode, cache.pgConnected, cache.pgUrl, cache.tableName, cache.autoRefreshSec, cache.autoRefreshType, parseCols, addRows, refreshData]);
+  }, [cache.selectedUser, cache.adminName, cache.mode, cache.pgUrl, cache.tableName, cache.userIdentifierCol, cache.selectedApiKey, parseCols, addRows]);
 
   const loadCsv = useCallback(async (file: File) => {
-    const txt = await file.text();
-    const rows = parseCsv(txt);
-    
-    clearData();
-
-    const cols = parseCols();
-    const normalized = rows.map((r) => {
-      const o = { ...r } as Partial<Message>;
-      for (const c of cols) {
-        if ((o as Record<string, unknown>)[c] === undefined) (o as Record<string, unknown>)[c] = "";
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) {
+        toast.warning('CSV must have header + at least 1 row');
+        return;
       }
-      if (!o.created_at) o.created_at = new Date().toISOString();
-      return o;
-    });
-
-    addRows(normalized, true);
-    setCache(prev => ({ ...prev, csvFileName: file.name }));
-  }, [clearData, parseCols, addRows]);
-
-  const toCsv = useCallback((): string => {
-    const cols = parseCols();
-    const esc = (v: unknown) => {
-      const s = String(v ?? "");
-      if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-        return '"' + s.split('"').join('""') + '"';
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      const rows: Partial<Message>[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        // Handle quoted values
+        const values: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (const char of lines[i]) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim());
+        
+        const row: Record<string, string> = {};
+        headers.forEach((h, j) => {
+          row[h] = values[j] || '';
+        });
+        rows.push(row as unknown as Partial<Message>);
       }
-      return s;
-    };
-
-    const head = cols.join(",");
-    const body = cache.rows
-      .map((r) => cols.map((c) => esc((r as unknown as Record<string, unknown>)[c])).join(","))
-      .join("\n");
-    return head + "\n" + body + "\n";
-  }, [cache.rows, parseCols]);
+      
+      setCache(prev => ({
+        ...prev,
+        mode: 'csv',
+        rows: [],
+        byKey: new Set(),
+        unread: {},
+        selectedUser: '',
+        hasLoadedOnce: false,
+        csvFileName: file.name,
+        tableCols: headers.join(', '),
+      }));
+      
+      // Then add all rows
+      setTimeout(() => {
+        addRows(rows, false);
+        toast.success(`Loaded ${rows.length} rows from ${file.name}`);
+      }, 0);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`CSV load failed: ${msg}`);
+    }
+  }, [addRows]);
 
   const downloadCsv = useCallback(() => {
-    const csv = toCsv();
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = cache.csvFileName || "messages.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, [toCsv, cache.csvFileName]);
-
-  const selectUser = useCallback((uid: string) => {
-    setCache(prev => ({
-      ...prev,
-      selectedUser: uid,
-      unread: { ...prev.unread, [uid]: 0 },
-    }));
-  }, []);
-
-  const setMode = useCallback((mode: Mode) => {
-    setCache(prev => ({ ...prev, mode }));
-  }, []);
-
-  const setTheme = useCallback((theme: Theme) => {
-    setCache(prev => ({ ...prev, theme }));
-    if (theme === 'dark') {
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
+    if (cache.rows.length === 0) {
+      toast.warning('No data to export');
+      return;
     }
-  }, []);
+    const headers = parseCols();
+    const csvRows = [headers.join(',')];
+    for (const row of cache.rows) {
+      const values = headers.map(h => {
+        const val = (row as Record<string, unknown>)[h];
+        const str = val == null ? '' : String(val);
+        // Escape quotes and wrap in quotes if contains comma
+        if (str.includes(',') || str.includes('"')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      });
+      csvRows.push(values.join(','));
+    }
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = cache.csvFileName || `${cache.tableName}_export.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${cache.rows.length} rows (${formatSize(blob.size)})`);
+  }, [cache.rows, cache.csvFileName, cache.tableName, parseCols]);
 
-  const setSettings = useCallback((settings: Partial<CacheData>) => {
-    setCache(prev => ({ ...prev, ...settings }));
-  }, []);
+  // Grouped users from rows
+  const groupedUsers = useCallback(() => {
+    const map = new Map<string, { count: number; lastTime: number }>();
+    const userIdCol = cache.userIdentifierCol || 'user_identifier';
+    for (const row of cache.rows) {
+      const uid = getUserId(row);
+      if (!uid) continue;
+      const t = parseTimeMs(row.created_at) ?? 0;
+      const prev = map.get(uid);
+      if (!prev) {
+        map.set(uid, { count: 1, lastTime: t });
+      } else {
+        prev.count++;
+        if (t > prev.lastTime) prev.lastTime = t;
+      }
+    }
+    return map;
+  }, [cache.rows, cache.userIdentifierCol, getUserId]);
 
-  const setAutoRefresh = useCallback((sec: string, type: RefreshType) => {
-    setCache(prev => ({ ...prev, autoRefreshSec: sec, autoRefreshType: type }));
-  }, []);
+  // Messages for selected user
+  const selectedMessages = useCallback((): Message[] => {
+    if (!cache.selectedUser) return [];
+    return cache.rows.filter(r => getUserId(r) === cache.selectedUser);
+  }, [cache.rows, cache.selectedUser, getUserId]);
 
-  // Auto refresh timer
+  // API health check effect - every 15 seconds
+  useEffect(() => {
+    checkApiHealth();
+    const interval = setInterval(checkApiHealth, 15000);
+    return () => clearInterval(interval);
+  }, [checkApiHealth]);
+
+  // Re-check API health when endpoint changes
+  useEffect(() => {
+    checkApiHealth();
+  }, [cache.selectedApiKey, checkApiHealth]);
+
+  // Auto-refresh timer
   useEffect(() => {
     if (autoTimerRef.current) {
       clearInterval(autoTimerRef.current);
@@ -686,7 +577,7 @@ export const useAdminChat = () => {
       } else {
         refreshCurrentUser(false);
       }
-    }, Math.max(1, Math.floor(n)) * 1000);
+    }, n * 1000);
 
     return () => {
       if (autoTimerRef.current) {
@@ -695,44 +586,10 @@ export const useAdminChat = () => {
     };
   }, [cache.autoRefreshSec, cache.autoRefreshType, cache.mode, refreshData, refreshCurrentUser]);
 
-  // API health polling - every 15 seconds
+  // Theme effect
   useEffect(() => {
-    checkApiHealth();
-    healthTimerRef.current = setInterval(checkApiHealth, 15000);
-    return () => {
-      if (healthTimerRef.current) {
-        clearInterval(healthTimerRef.current);
-      }
-    };
-  }, [checkApiHealth]);
-
-  // Theme init
-  useEffect(() => {
-    if (cache.theme === 'light') {
-      document.documentElement.classList.add('light');
-    } else {
-      document.documentElement.classList.remove('light');
-    }
+    document.documentElement.classList.toggle('dark', cache.theme === 'dark');
   }, [cache.theme]);
-
-  const groupedUsers = useCallback(() => {
-    const map = new Map<string, Message[]>();
-    const userIdCol = cache.userIdentifierCol || 'user_identifier';
-    for (const r of cache.rows) {
-      const uid = String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "");
-      if (!uid) continue;
-      if (!map.has(uid)) map.set(uid, []);
-      map.get(uid)!.push(r);
-    }
-    return map;
-  }, [cache.rows, cache.userIdentifierCol]);
-
-  const selectedMessages = cache.selectedUser
-    ? cache.rows.filter((r) => {
-        const userIdCol = cache.userIdentifierCol || 'user_identifier';
-        return String((r as Record<string, unknown>)[userIdCol] || r.user_identifier || "") === cache.selectedUser;
-      })
-    : [];
 
   return {
     cache,
@@ -743,12 +600,12 @@ export const useAdminChat = () => {
     setTheme,
     setSettings,
     setAutoRefresh,
+    setSelectedApiKey,
     refreshData,
     refreshCurrentUser,
     sendMessage,
     loadCsv,
     downloadCsv,
     testDbConnection,
-    checkApiHealth,
   };
-};
+}

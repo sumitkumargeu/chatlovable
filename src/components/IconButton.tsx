@@ -1,17 +1,21 @@
 import { cn } from '@/lib/utils';
-import { forwardRef, ButtonHTMLAttributes } from 'react';
+import { forwardRef, ButtonHTMLAttributes, ElementType } from 'react';
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  icon?: ElementType;
+  label?: string;
   variant?: 'default' | 'primary' | 'ghost';
   size?: 'sm' | 'md';
   spinning?: boolean;
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ className, variant = 'default', size = 'md', spinning, children, ...props }, ref) => {
+  ({ className, icon: Icon, label, variant = 'default', size = 'md', spinning, children, ...props }, ref) => {
     return (
       <button
         ref={ref}
+        title={label}
+        aria-label={label}
         className={cn(
           "inline-flex items-center justify-center rounded-xl border border-line transition-all duration-200",
           "hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
@@ -25,6 +29,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         )}
         {...props}
       >
+        {Icon && <Icon className={cn(size === 'md' ? "w-5 h-5" : "w-4 h-4")} />}
         {children}
       </button>
     );

@@ -1,7 +1,16 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, RefreshCw, Sun, Moon, Timer, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAdminChat, formatUserId, Message } from '@/hooks/useAdminChat';
+import { 
+  Settings, 
+  RefreshCcw, 
+  Sun, 
+  Moon, 
+  Timer, 
+  RotateCcw,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+import { useAdminChat, getApiEndpointKeys, API_ENDPOINTS } from '@/hooks/useAdminChat';
 import { StatusPill } from '@/components/StatusPill';
 import { IconButton } from '@/components/IconButton';
 import { SegmentedControl } from '@/components/SegmentedControl';
@@ -9,7 +18,7 @@ import { UsersList } from '@/components/UsersList';
 import { ChatMessages } from '@/components/ChatMessages';
 import { ChatComposer } from '@/components/ChatComposer';
 import { SettingsModal } from '@/components/SettingsModal';
-import { AttachmentPreview } from '@/components/AttachmentPreview';
+import ApiSelector from '@/components/ApiSelector';
 import { toast } from 'sonner';
 
 const Index = () => {
@@ -22,6 +31,7 @@ const Index = () => {
     setTheme,
     setSettings,
     setAutoRefresh,
+    setSelectedApiKey,
     refreshData,
     refreshCurrentUser,
     sendMessage,
@@ -30,13 +40,17 @@ const Index = () => {
     testDbConnection,
   } = useAdminChat();
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [attachmentPreview, setAttachmentPreview] = useState<Message | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [mobileUsersExpanded, setMobileUsersExpanded] = useState(true);
-  
+  const [mobileUsersExpanded, setMobileUsersExpanded] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(280);
   const dividerRef = useRef<HTMLDivElement>(null);
-  const [leftWidth, setLeftWidth] = useState(320);
+
+  // Prepare API endpoints for selector
+  const apiEndpoints = getApiEndpointKeys().map(key => ({
+    key,
+    url: API_ENDPOINTS[key] || ''
+  }));
 
   const handleMainRefresh = useCallback(async () => {
     if (cache.mode !== 'db') return;
@@ -58,79 +72,86 @@ const Index = () => {
     toast.success('Refreshed (all)');
   }, [cache.mode, refreshCurrentUser]);
 
+  // Divider drag handler
   const handleDividerDrag = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = leftWidth;
+    const startW = leftWidth;
 
-    const onMove = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientX - startX;
-      const newWidth = Math.max(220, Math.min(520, startWidth + delta));
-      setLeftWidth(newWidth);
+    const onMove = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      setLeftWidth(Math.max(200, Math.min(500, startW + delta)));
     };
-
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
     };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }, [leftWidth]);
 
-  const handleSavePgUrl = useCallback(async (url: string) => {
-    setSettings({ pgUrl: url });
-    const connected = await testDbConnection();
-    if (connected) {
-      toast.success('Connected to database');
+  const formatUserId = (uid: string) => {
+    if (uid.length > 20) return uid.slice(0, 20) + '...';
+    return uid;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    if (cache.mode === 'db' && cache.pgUrl && !cache.hasLoadedOnce) {
+      refreshData(false);
     }
-  }, [setSettings, testDbConnection]);
+  }, [cache.mode, cache.pgUrl, cache.hasLoadedOnce, refreshData]);
 
   return (
-    <div className="h-full flex flex-col gradient-bg">
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Top Bar */}
       <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-line backdrop-blur-xl bg-background/85">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <StatusPill
             isGood={cache.apiHealthOk}
             label="API"
           />
+          <ApiSelector
+            endpoints={apiEndpoints}
+            selectedKey={cache.selectedApiKey}
+            onSelect={setSelectedApiKey}
+          />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <SegmentedControl
-            options={[
-              { value: 'db', label: 'DB' },
-              { value: 'csv', label: 'CSV' },
-            ]}
-            value={cache.mode}
-            onChange={setMode}
+          {/* Refresh Button */}
+          <IconButton
+            icon={RefreshCcw}
+            label="Refresh"
+            onClick={handleMainRefresh}
+            disabled={cache.mode !== 'db'}
+            className={isRefreshing ? 'animate-spin' : ''}
           />
 
+          {/* DB/CSV Toggle */}
+          <SegmentedControl
+            options={['DB', 'CSV']}
+            value={cache.mode === 'db' ? 'DB' : 'CSV'}
+            onChange={(v) => setMode(v === 'DB' ? 'db' : 'csv')}
+          />
+
+          {/* Theme Toggle */}
           <IconButton
+            icon={cache.theme === 'dark' ? Sun : Moon}
+            label={cache.theme === 'dark' ? 'Light mode' : 'Dark mode'}
             onClick={() => setTheme(cache.theme === 'dark' ? 'light' : 'dark')}
-            aria-label="Toggle theme"
-          >
-            {cache.theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </IconButton>
+          />
 
-          {cache.mode === 'db' && (
-            <IconButton
-              onClick={handleMainRefresh}
-              aria-label="Refresh"
-              className={isRefreshing ? 'animate-spin' : ''}
-            >
-              <RefreshCw className="w-5 h-5" />
-            </IconButton>
-          )}
-
-          <IconButton onClick={() => setSettingsOpen(true)} aria-label="Settings">
-            <Settings className="w-5 h-5" />
-          </IconButton>
+          {/* Settings */}
+          <IconButton
+            icon={Settings}
+            label="Settings"
+            onClick={() => setShowSettings(true)}
+          />
         </div>
       </header>
 
-      {/* Main Layout */}
+      {/* Main Content */}
       <main className="flex-1 flex flex-col md:flex-row min-h-0 p-3 gap-3">
         {/* Users Panel - Mobile Collapsible */}
         <section
@@ -205,56 +226,48 @@ const Index = () => {
                 {cache.selectedUser && cache.adminName
                   ? `Admin • ${cache.adminName}`
                   : cache.selectedUser
-                  ? 'Admin'
-                  : '\u00A0'}
+                    ? 'No admin name set'
+                    : 'Choose a conversation'}
               </p>
             </div>
-
+            
             {cache.selectedUser && cache.mode === 'db' && (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <IconButton
-                    size="sm"
-                    onClick={handleRefreshFiltered}
-                    aria-label="Refresh current user (filtered)"
-                    title="Refresh with date filter"
-                  >
-                    <Timer className="w-4 h-4" />
-                  </IconButton>
-                  <IconButton
-                    size="sm"
-                    onClick={handleRefreshAll}
-                    aria-label="Refresh current user (all)"
-                    title="Refresh all messages"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </IconButton>
-                </div>
-                <span className="text-[10px] text-muted-foreground">
-                  {cache.mode === 'db' ? 'DB mode' : 'CSV mode'}
-                </span>
+              <div className="flex items-center gap-2">
+                <IconButton
+                  icon={Timer}
+                  label="Refresh with filter"
+                  size="sm"
+                  onClick={handleRefreshFiltered}
+                />
+                <IconButton
+                  icon={RotateCcw}
+                  label="Refresh all"
+                  size="sm"
+                  onClick={handleRefreshAll}
+                />
               </div>
             )}
           </div>
 
           {/* Messages */}
-          <ChatMessages
-            messages={selectedMessages}
-            onOpenAttachment={setAttachmentPreview}
-          />
+          <div className="flex-1 overflow-hidden">
+            <ChatMessages
+              messages={selectedMessages()}
+            />
+          </div>
 
           {/* Composer */}
           <ChatComposer
-            onSend={sendMessage}
             disabled={!cache.selectedUser}
+            onSend={sendMessage}
           />
         </section>
       </main>
 
       {/* Settings Modal */}
       <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
         mode={cache.mode}
         pgUrl={cache.pgUrl}
         pgConnected={cache.pgConnected}
@@ -266,49 +279,20 @@ const Index = () => {
         autoRefreshSec={cache.autoRefreshSec}
         autoRefreshType={cache.autoRefreshType}
         csvFileName={cache.csvFileName}
-        onSavePgUrl={handleSavePgUrl}
-        onSetTableName={(name) => {
-          setSettings({ tableName: name });
-          toast.success(`Table set to: ${name}`);
-        }}
-        onSetTableCols={(cols) => {
-          setSettings({ tableCols: cols });
-          toast.success('Table attributes updated');
-        }}
-        onSetUserIdentifierCol={(col) => {
-          setSettings({ userIdentifierCol: col });
-          toast.success(`User identifier column set to: ${col}`);
-        }}
-        onSetAfterDate={(date) => {
-          setSettings({ afterDateSet: date, afterDateDraft: date });
-          toast.success('Date filter set');
-        }}
-        onSetAdminName={(name) => {
-          setSettings({ adminName: name });
-          toast.success('Admin name set');
-        }}
-        onSetAutoRefresh={(sec, type) => {
-          setAutoRefresh(sec, type);
-          if (sec) {
-            toast.success(`Auto refresh set: ${sec}s (${type})`);
-          } else {
-            toast.success('Auto refresh cleared');
-          }
-        }}
-        onLoadCsv={async (file) => {
-          await loadCsv(file);
-          toast.success('CSV loaded');
-        }}
+        onSavePgUrl={(v) => setSettings({ pgUrl: v })}
+        onSetTableName={(v) => setSettings({ tableName: v })}
+        onSetTableCols={(v) => setSettings({ tableCols: v })}
+        onSetUserIdentifierCol={(v) => setSettings({ userIdentifierCol: v })}
+        onSetAfterDate={(v) => setSettings({ afterDateDraft: v, afterDateSet: v })}
+        onSetAdminName={(v) => setSettings({ adminName: v })}
+        onSetAutoRefresh={setAutoRefresh}
+        onLoadCsv={loadCsv}
         onDownloadCsv={downloadCsv}
-      />
-
-      {/* Attachment Preview */}
-      <AttachmentPreview
-        message={attachmentPreview}
-        onClose={() => setAttachmentPreview(null)}
       />
     </div>
   );
 };
+
+export default Index;
 
 export default Index;
