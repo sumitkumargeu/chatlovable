@@ -6,8 +6,8 @@ export const API_ENDPOINTS: Record<string, string> = {
   A: "https://chatapi101.onrender.com",
   // Add more endpoints as needed:
   B: "https://chatapi102.onrender.com",
-  C: "https://chatapi102.onrender.com",
-  D: "https://chatapi102.onrender.com",
+  C: "https://chatapi103.onrender.com",
+  D: "https://chatapi104.onrender.com",
   E: "https://chatapi-fgqu.onrender.com"
 };
 
