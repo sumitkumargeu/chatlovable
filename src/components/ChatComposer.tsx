@@ -4,18 +4,33 @@ import { IconButton } from './IconButton';
 import { toast } from 'sonner';
 
 interface ChatComposerProps {
-  onSend: (text: string, attachment: File | null) => void;
+  onSend: (text: string, fileBase64: string | null) => void;
   disabled?: boolean;
 }
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
 
 export const ChatComposer = ({ onSend, disabled }: ChatComposerProps) => {
   const [text, setText] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!text.trim() && !attachment) return;
-    onSend(text.trim(), attachment);
+    
+    let fileBase64: string | null = null;
+    if (attachment) {
+      fileBase64 = await fileToBase64(attachment);
+    }
+    
+    onSend(text.trim(), fileBase64);
     setText('');
     setAttachment(null);
   };

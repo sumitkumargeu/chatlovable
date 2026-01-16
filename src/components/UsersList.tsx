@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { Message, formatUserId, initialsFor, toMessageTimeLabel } from '@/hooks/useAdminChat';
+import { formatUserId, initialsFor, toMessageTimeLabel } from '@/hooks/useAdminChat';
 
 interface UsersListProps {
-  groupedUsers: Map<string, Message[]>;
+  groupedUsers: Map<string, { count: number; lastTime: number }>;
   selectedUser: string;
   unread: Record<string, number>;
   onSelectUser: (uid: string) => void;
@@ -17,14 +17,10 @@ export const UsersList = ({
   onSelectUser,
   isCollapsed,
 }: UsersListProps) => {
-  const users = Array.from(groupedUsers.keys()).sort((a, b) => {
-    const la = groupedUsers.get(a)?.at(-1);
-    const lb = groupedUsers.get(b)?.at(-1);
-    const ta = la?.created_at ? new Date(la.created_at).getTime() : 0;
-    const tb = lb?.created_at ? new Date(lb.created_at).getTime() : 0;
-    if (tb !== ta) return tb - ta;
-    return a.localeCompare(b);
-  });
+  // Sort users by lastTime descending
+  const users = Array.from(groupedUsers.entries())
+    .sort(([, a], [, b]) => b.lastTime - a.lastTime)
+    .map(([uid]) => uid);
 
   if (users.length === 0) {
     return (
@@ -40,8 +36,7 @@ export const UsersList = ({
       isCollapsed && "flex-row overflow-x-auto overflow-y-hidden"
     )}>
       {users.map((uid) => {
-        const messages = groupedUsers.get(uid) || [];
-        const lastMessage = messages.at(-1);
+        const userData = groupedUsers.get(uid);
         const isActive = uid === selectedUser;
         const unreadCount = unread[uid] || 0;
 
@@ -69,9 +64,7 @@ export const UsersList = ({
                     {formatUserId(uid)}
                   </div>
                   <div className="text-xs text-muted-foreground truncate max-w-[180px] mt-0.5">
-                    {lastMessage
-                      ? `${(lastMessage.message || "(attachment)").slice(0, 32)} · ${toMessageTimeLabel(lastMessage.created_at)}`
-                      : ""}
+                    {userData?.count || 0} messages · {userData?.lastTime ? toMessageTimeLabel(new Date(userData.lastTime).toISOString()) : ''}
                   </div>
                 </div>
               )}
